@@ -582,12 +582,21 @@ func Status(db store.IStore) echo.HandlerFunc {
 			for i := range devices {
 				devVm := DeviceVM{Name: devices[i].Name}
 				for j := range devices[i].Peers {
+					var allocatedIPs string
+					for _, ip := range devices[i].Peers[j].AllocatedIPs {
+						if len(allocatedIPs) > 0 {
+							allocatedIPs += "</br>"
+						}
+						allocatedIPs += ip.String()
+					}
 					pVm := PeerVM{
 						PublicKey:         devices[i].Peers[j].PublicKey.String(),
 						ReceivedBytes:     devices[i].Peers[j].ReceiveBytes,
 						TransmitBytes:     devices[i].Peers[j].TransmitBytes,
 						LastHandshakeTime: devices[i].Peers[j].LastHandshakeTime,
 						LastHandshakeRel:  time.Since(devices[i].Peers[j].LastHandshakeTime),
+						AllocatedIP:       allocatedIPs,
+						Endpoint:          devices[i].Peers[j].Endpoint.String(),
 					}
 					pVm.Connected = pVm.LastHandshakeRel.Minutes() < 3.
 
