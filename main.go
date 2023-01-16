@@ -31,7 +31,7 @@ var (
 	flagSmtpPort       int    = 25
 	flagSmtpUsername   string
 	flagSmtpPassword   string
-	flagSmtpAuthType   string = "None"
+	flagSmtpAuthType   string = "NONE"
 	flagSmtpNoTLSCheck bool   = false
 	flagSmtpEncryption string = "STARTTLS"
 	flagSendgridApiKey string
@@ -62,7 +62,7 @@ func init() {
 	flag.StringVar(&flagSmtpPassword, "smtp-password", util.LookupEnvOrString("SMTP_PASSWORD", flagSmtpPassword), "SMTP Password")
 	flag.BoolVar(&flagSmtpNoTLSCheck, "smtp-no-tls-check", util.LookupEnvOrBool("SMTP_NO_TLS_CHECK", flagSmtpNoTLSCheck), "Disable TLS verification for SMTP. This is potentially dangerous.")
 	flag.StringVar(&flagSmtpEncryption, "smtp-encryption", util.LookupEnvOrString("SMTP_ENCRYPTION", flagSmtpEncryption), "SMTP Encryption : SSL, SSLTLS, TLS or STARTTLS (by default)")
-	flag.StringVar(&flagSmtpAuthType, "smtp-auth-type", util.LookupEnvOrString("SMTP_AUTH_TYPE", flagSmtpAuthType), "SMTP Auth Type : Plain, Login or None.")
+	flag.StringVar(&flagSmtpAuthType, "smtp-auth-type", util.LookupEnvOrString("SMTP_AUTH_TYPE", flagSmtpAuthType), "SMTP Auth Type : PLAIN, LOGIN or NONE.")
 	flag.StringVar(&flagSendgridApiKey, "sendgrid-api-key", util.LookupEnvOrString("SENDGRID_API_KEY", flagSendgridApiKey), "Your sendgrid api key.")
 	flag.StringVar(&flagEmailFrom, "email-from", util.LookupEnvOrString("EMAIL_FROM_ADDRESS", flagEmailFrom), "'From' email address.")
 	flag.StringVar(&flagEmailFromName, "email-from-name", util.LookupEnvOrString("EMAIL_FROM_NAME", flagEmailFromName), "'From' email name.")
@@ -135,6 +135,9 @@ func main() {
 	if !util.DisableLogin {
 		app.GET(util.BasePath+"/login", handler.LoginPage())
 		app.POST(util.BasePath+"/login", handler.Login(db))
+		app.GET(util.BasePath+"/logout", handler.Logout(), handler.ValidSession)
+		app.GET(util.BasePath+"/profile", handler.LoadProfile(db), handler.ValidSession)
+		app.POST(util.BasePath+"/profile", handler.UpdateProfile(db), handler.ValidSession)
 	}
 
 	var sendmail emailer.Emailer
@@ -145,7 +148,6 @@ func main() {
 	}
 
 	app.GET(util.BasePath+"/_health", handler.Health())
-	app.GET(util.BasePath+"/logout", handler.Logout(), handler.ValidSession)
 	app.POST(util.BasePath+"/new-client", handler.NewClient(db), handler.ValidSession, handler.ContentTypeJson)
 	app.POST(util.BasePath+"/update-client", handler.UpdateClient(db), handler.ValidSession, handler.ContentTypeJson)
 	app.POST(util.BasePath+"/email-client", handler.EmailClient(db, sendmail, defaultEmailSubject, defaultEmailContent), handler.ValidSession, handler.ContentTypeJson)

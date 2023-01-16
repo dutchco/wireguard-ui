@@ -100,6 +100,63 @@ func Logout() echo.HandlerFunc {
 	}
 }
 
+// LoadProfile to load user information
+func LoadProfile(db store.IStore) echo.HandlerFunc {
+	return func(c echo.Context) error {
+
+		userInfo, err := db.GetUser()
+		if err != nil {
+			log.Error("Cannot get user information: ", err)
+		}
+
+		return c.Render(http.StatusOK, "profile.html", map[string]interface{}{
+			"baseData": model.BaseData{Active: "profile", CurrentUser: currentUser(c)},
+			"userInfo": userInfo,
+		})
+	}
+}
+
+// UpdateProfile to update user information
+func UpdateProfile(db store.IStore) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		data := make(map[string]interface{})
+		err := json.NewDecoder(c.Request().Body).Decode(&data)
+
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, jsonHTTPResponse{false, "Bad post data"})
+		}
+
+		username := data["username"].(string)
+		password := data["password"].(string)
+
+		user, err := db.GetUser()
+		if err != nil {
+			return c.JSON(http.StatusNotFound, jsonHTTPResponse{false, err.Error()})
+		}
+
+		if username == "" {
+			return c.JSON(http.StatusBadRequest, jsonHTTPResponse{false, "Please provide a valid username"})
+		} else {
+			user.Username = username
+		}
+
+		if password != "" {
+			hash, err := util.HashPassword(password)
+			if err != nil {
+				return c.JSON(http.StatusInternalServerError, jsonHTTPResponse{false, err.Error()})
+			}
+			user.PasswordHash = hash
+		}
+
+		if err := db.SaveUser(user); err != nil {
+			return c.JSON(http.StatusInternalServerError, jsonHTTPResponse{false, err.Error()})
+		}
+		log.Infof("Updated admin user information successfully")
+
+		return c.JSON(http.StatusOK, jsonHTTPResponse{true, "Updated admin user information successfully"})
+	}
+}
+
 // WireGuardClients handler
 func WireGuardClients(db store.IStore) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -118,7 +175,7 @@ func WireGuardClients(db store.IStore) echo.HandlerFunc {
 	}
 }
 
-// GetClients handler return a list of Wireguard client data
+// GetClients handler return a JSON list of Wireguard client data
 func GetClients(db store.IStore) echo.HandlerFunc {
 	return func(c echo.Context) error {
 
@@ -133,12 +190,20 @@ func GetClients(db store.IStore) echo.HandlerFunc {
 	}
 }
 
-// GetClient handler return a of Wireguard client data
+// GetClient handler returns a JSON object of Wireguard client data
 func GetClient(db store.IStore) echo.HandlerFunc {
 	return func(c echo.Context) error {
 
 		clientID := c.Param("id")
-		clientData, err := db.GetClientByID(clientID, true)
+		qrCodeIncludeFwMark := c.QueryParam("qrCodeIncludeFwMark")
+		qrCodeSettings := model.QRCodeSettings{
+			Enabled:       true,
+			IncludeDNS:    true,
+			IncludeFwMark: qrCodeIncludeFwMark == "true",
+			IncludeMTU:    true,
+		}
+
+		clientData, err := db.GetClientByID(clientID, qrCodeSettings)
 		if err != nil {
 			return c.JSON(http.StatusNotFound, jsonHTTPResponse{false, "Client not found"})
 		}
@@ -223,6 +288,9 @@ func NewClient(db store.IStore) echo.HandlerFunc {
 				})
 			}
 			client.PresharedKey = presharedKey.String()
+		} else if client.PresharedKey == "-" {
+			client.PresharedKey = ""
+			log.Infof("skipped PresharedKey generation for user: %v", client.Name)
 		} else {
 			_, err := wgtypes.ParseKey(client.PresharedKey)
 			if err != nil {
@@ -245,7 +313,7 @@ func NewClient(db store.IStore) echo.HandlerFunc {
 	}
 }
 
-// EmailClient handler to sent the configuration via email
+// EmailClient handler to send the configuration via email
 func EmailClient(db store.IStore, mailer emailer.Emailer, emailSubject, emailContent string) echo.HandlerFunc {
 	type clientIdEmailPayload struct {
 		ID    string `json:"id"`
@@ -257,7 +325,13 @@ func EmailClient(db store.IStore, mailer emailer.Emailer, emailSubject, emailCon
 		c.Bind(&payload)
 		// TODO validate email
 
-		clientData, err := db.GetClientByID(payload.ID, true)
+		qrCodeSettings := model.QRCodeSettings{
+			Enabled:       true,
+			IncludeDNS:    true,
+			IncludeFwMark: true,
+			IncludeMTU:    true,
+		}
+		clientData, err := db.GetClientByID(payload.ID, qrCodeSettings)
 		if err != nil {
 			log.Errorf("Cannot generate client id %s config file for downloading: %v", payload.ID, err)
 			return c.JSON(http.StatusNotFound, jsonHTTPResponse{false, "Client not found"})
@@ -268,17 +342,17 @@ func EmailClient(db store.IStore, mailer emailer.Emailer, emailSubject, emailCon
 		globalSettings, _ := db.GetGlobalSettings()
 		config := util.BuildClientConfig(*clientData.Client, server, globalSettings)
 
-		cfg_att := emailer.Attachment{"wg0.conf", []byte(config)}
+		cfgAtt := emailer.Attachment{"wg0.conf", []byte(config)}
 		var attachments []emailer.Attachment
 		if clientData.Client.PrivateKey != "" {
 			qrdata, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(clientData.QRCode, "data:image/png;base64,"))
 			if err != nil {
 				return c.JSON(http.StatusInternalServerError, jsonHTTPResponse{false, "decoding: " + err.Error()})
 			}
-			qr_att := emailer.Attachment{"wg.png", qrdata}
-			attachments = []emailer.Attachment{cfg_att, qr_att}
+			qrAtt := emailer.Attachment{"wg.png", qrdata}
+			attachments = []emailer.Attachment{cfgAtt, qrAtt}
 		} else {
-			attachments = []emailer.Attachment{cfg_att}
+			attachments = []emailer.Attachment{cfgAtt}
 		}
 		err = mailer.Send(
 			clientData.Client.Name,
@@ -304,7 +378,7 @@ func UpdateClient(db store.IStore) echo.HandlerFunc {
 		c.Bind(&_client)
 
 		// validate client existence
-		clientData, err := db.GetClientByID(_client.ID, false)
+		clientData, err := db.GetClientByID(_client.ID, model.QRCodeSettings{Enabled: false})
 		if err != nil {
 			return c.JSON(http.StatusNotFound, jsonHTTPResponse{false, "Client not found"})
 		}
@@ -368,12 +442,12 @@ func SetClientStatus(db store.IStore) echo.HandlerFunc {
 		clientID := data["id"].(string)
 		status := data["status"].(bool)
 
-		clientdata, err := db.GetClientByID(clientID, false)
+		clientData, err := db.GetClientByID(clientID, model.QRCodeSettings{Enabled: false})
 		if err != nil {
 			return c.JSON(http.StatusNotFound, jsonHTTPResponse{false, err.Error()})
 		}
 
-		client := *clientdata.Client
+		client := *clientData.Client
 
 		client.Enabled = status
 		if err := db.SaveClient(client); err != nil {
@@ -393,7 +467,7 @@ func DownloadClient(db store.IStore) echo.HandlerFunc {
 			return c.JSON(http.StatusNotFound, jsonHTTPResponse{false, "Missing clientid parameter"})
 		}
 
-		clientData, err := db.GetClientByID(clientID, false)
+		clientData, err := db.GetClientByID(clientID, model.QRCodeSettings{Enabled: false})
 		if err != nil {
 			log.Errorf("Cannot generate client id %s config file for downloading: %v", clientID, err)
 			return c.JSON(http.StatusNotFound, jsonHTTPResponse{false, "Client not found"})
@@ -541,7 +615,7 @@ func Status(db store.IStore) echo.HandlerFunc {
 	}
 	return func(c echo.Context) error {
 
-		wgclient, err := wgctrl.New()
+		wgClient, err := wgctrl.New()
 		if err != nil {
 			return c.Render(http.StatusInternalServerError, "status.html", map[string]interface{}{
 				"baseData": model.BaseData{Active: "status", CurrentUser: currentUser(c)},
@@ -550,7 +624,7 @@ func Status(db store.IStore) echo.HandlerFunc {
 			})
 		}
 
-		devices, err := wgclient.Devices()
+		devices, err := wgClient.Devices()
 		if err != nil {
 			return c.Render(http.StatusInternalServerError, "status.html", map[string]interface{}{
 				"baseData": model.BaseData{Active: "status", CurrentUser: currentUser(c)},
