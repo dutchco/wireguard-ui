@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"strconv"
 
 	rice "github.com/GeertJohan/go.rice"
 	"github.com/gorilla/sessions"
@@ -607,6 +608,10 @@ func Status(db store.IStore) echo.HandlerFunc {
 		LastHandshakeTime time.Time
 		LastHandshakeRel  time.Duration
 		Connected         bool
+		AllocatedIP       string
+		Endpoint          string
+		PharosIp          string
+		TeltonikaIp       string
 	}
 
 	type DeviceVM struct {
@@ -654,13 +659,49 @@ func Status(db store.IStore) echo.HandlerFunc {
 			for i := range devices {
 				devVm := DeviceVM{Name: devices[i].Name}
 				for j := range devices[i].Peers {
+					var allocatedIPs string
+					for _, ip := range devices[i].Peers[j].AllowedIPs {
+						if len(allocatedIPs) > 0 {
+							allocatedIPs += "</br>"
+						}
+						allocatedIPs += ip.String()
+					}
+
+					var pharosIp string
+					var teltonikaIp string
+					var mainIp []string
+					mainIp = strings.Split(devices[i].Peers[j].AllowedIPs[0].String(), ".")
+					subnet, err := strconv.Atoi(mainIp[1])
+
+					if err != nil {
+						fmt.Println("Error during conversion")
+						
+					}
+
+					//devices[i].Peers[j].AllowedIPs[0]
+					
+					if(subnet <= 10){
+						pharosIp 	= mainIp[0] + "." + mainIp[1] + "." + mainIp[2] + ".11"
+						teltonikaIp = mainIp[0] + "." + mainIp[1] + "." + mainIp[2] + ".1"
+					}else{
+						pharosIp = "-"
+						teltonikaIp = "-"
+					}
+					
+
+					
 					pVm := PeerVM{
 						PublicKey:         devices[i].Peers[j].PublicKey.String(),
 						ReceivedBytes:     devices[i].Peers[j].ReceiveBytes,
 						TransmitBytes:     devices[i].Peers[j].TransmitBytes,
 						LastHandshakeTime: devices[i].Peers[j].LastHandshakeTime,
 						LastHandshakeRel:  time.Since(devices[i].Peers[j].LastHandshakeTime),
+						AllocatedIP:       allocatedIPs,
+						PharosIp: 		   pharosIp,
+						TeltonikaIp: 	   teltonikaIp,
+						Endpoint:          devices[i].Peers[j].Endpoint.String(),
 					}
+
 					pVm.Connected = pVm.LastHandshakeRel.Minutes() < 3.
 
 					if _client, ok := m[pVm.PublicKey]; ok {

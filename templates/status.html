@@ -41,7 +41,8 @@ Connected Peers
                   <th scope="col">#</th>
                   <th scope="col">Name</th>
                   <th scope="col">Email</th>
-                  <th scope="col">Public Key</th>
+                  <th scope="col">Teltonika</th>
+                  <th scope="col">Pharos</th>
                   <th scope="col">Received</th>
                   <th scope="col">Transmitted</th>
                   <th scope="col">Connected (Approximation)</th>
@@ -54,7 +55,8 @@ Connected Peers
                 <th scope="row">{{ $idx }}</th>
                 <td>{{ $peer.Name }}</td>
                 <td>{{ $peer.Email }}</td>
-                <td>{{ $peer.PublicKey }}</td>
+                <td><a href="http://{{ $peer.TeltonikaIp }}" target="_blank">{{ $peer.TeltonikaIp }}</a></td>
+                <td><a href="http://{{ $peer.PharosIp }}" target="_blank">{{ $peer.PharosIp }}</a></td>
                 <td title="{{ $peer.ReceivedBytes }} Bytes"><script>document.write(bytesToHumanReadable({{ $peer.ReceivedBytes }}))</script></td>
                 <td title="{{ $peer.TransmitBytes }} Bytes"><script>document.write(bytesToHumanReadable({{ $peer.TransmitBytes }}))</script></td>
                 <td>{{ if $peer.Connected }}✓{{end}}</td>
